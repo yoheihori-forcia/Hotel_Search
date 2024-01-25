@@ -116,19 +116,40 @@ def limit_price(df:pd.DataFrame, dprice:int):
 
     return df
     
+def df_to_lists(display:pd.DataFrame):
+    urls = display['url'].to_list()
+    titles = display['title'].to_list()
+    contents =display['content'].to_list()
+    names = display['name'].to_list()
+    embeddings = display['embedding'].to_list()
+    idos = display['ido'].to_list()
+    keidos = display['keido'].to_list()
+    hotelids = display['hotelid'].to_list()
+    prices = display['price'].to_list()
+
+    return urls,titles,contents,names,embeddings,idos,keidos,hotelids,prices
+
 def main():
     st.title("ホテル検索ツール")
-    df = pd.read_pickle('vector_database.pkl')
+    @st.cache_data
+    def load_vdb():
+        return pd.read_pickle('vector_database.pkl')
+    df = load_vdb()
     df = df.reset_index(drop=True)
     st.session_state['df'] = df
-    search_word = st.text_input('地名・設備・ホテルの特徴などで検索', placeholder = "例：東北の自然に囲まれた温泉宿", key = "search_word")
+    if 'search_word' not in st.session_state:
+        st.session_state.search_word = ''
+    search_word = st.text_input('地名・設備・ホテルの特徴などで検索', placeholder = "例：東北の自然に囲まれた温泉宿", key = "search_word", value=st.session_state['search_word'])
     pressed = st.button("Search Hotels")
     df['sim'] = np.zeros(len(df))
 
     if pressed:
         search_vec = aws_embedding([search_word])
-        for i in range(len(df)):
-            df['sim'][i] = cos_similarity(search_vec, df['embedding'][i])
+        sim = []
+        embeddings = df['embedding'].to_list()
+        for embedding in embeddings:
+            sim.append(cos_similarity(search_vec, embedding))
+        df['sim'] = sim
         df = df.sort_values('sim', ascending=False)
         st.session_state['df'] = df
         display = df.iloc[0:10].reset_index(drop=True)
@@ -136,22 +157,24 @@ def main():
             st.session_state["page-select"] = "page2"
 
         def button_callback(n:int):
-            st.session_state["name"] = display['name'][n]
-            st.session_state["title"] = display['title'][n]
-            st.session_state["content"] = display['content'][n]
-            st.session_state["embedding"] = display['embedding'][n]
-            st.session_state["ido"] = display['ido'][n]
-            st.session_state["keido"] = display['keido'][n]
-            st.session_state["url"] = display['url'][n]
-            st.session_state['hotelid'] = display['hotelid'][n]
-            st.session_state['price'] = display['price'][n]
+            st.session_state["name"] = names[n]
+            st.session_state["title"] = titles[n]
+            st.session_state["content"] = contents[n]
+            st.session_state["embedding"] = embeddings[n]
+            st.session_state["ido"] = idos[n]
+            st.session_state["keido"] = keidos[n]
+            st.session_state["url"] = urls[n]
+            st.session_state['hotelid'] = hotelids[n]
+            st.session_state['price'] = prices[n]
             change_page()
 
+        urls,titles,contents,names,embeddings,idos,keidos,hotelids,prices = df_to_lists(display)
+
         for i in range(len(display)):
-            st.session_state["url"] = display['url'][i]
-            st.session_state["title"] = display['title'][i]
-            st.session_state["content"] = display['content'][i]
-            name, price, content = display['name'][i], display['price'][i], display['content'][i]
+            st.session_state["url"] = urls[i]
+            st.session_state["title"] = titles[i]
+            st.session_state["content"] = contents[i]
+            name, price, content = names[i], prices[i], contents[i]
             st.markdown(f'**{name}**  \n{price}円～  \n{content}')
             st.button(f"{name}の詳細", on_click=button_callback, args=(i,))
     
@@ -160,9 +183,10 @@ def main():
         'お住いの都道府県を選択 (実際のサイトでは利用者の位置情報を基に表示します)',
         ('北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県','海外' )
     )
-
-    
-    hotel = pd.read_csv('./KNTres20230927-20240109.csv', encoding='shift-jis')
+    @st.cache_data
+    def read_res():
+        return pd.read_csv('./KNTres20230927-20240109.csv', encoding='shift-jis')
+    hotel = read_res()
     pref_df = pd.read_csv('./pref.csv', encoding='shift-jis')
     pref_eng = pref_df[pref_df['name']==pref]['en'].iloc[0]
     hotel_pref = hotel[hotel['pref']==pref_eng]
@@ -173,24 +197,28 @@ def main():
         st.session_state["page-select"] = "page2"
 
     def button_callback(n:int):
-        st.session_state["name"] = results['name'][n]
-        st.session_state["title"] = results['title'][n]
-        st.session_state["content"] = results['content'][n]
-        st.session_state["embedding"] = results['embedding'][n]
-        st.session_state["ido"] = results['ido'][n]
-        st.session_state["keido"] = results['keido'][n]
-        st.session_state["url"] = results['url'][n]
-        st.session_state['hotelid'] = results['hotelid'][n]
-        st.session_state['price'] = results['price'][n]
+        st.session_state["name"] = names[n]
+        st.session_state["title"] = titles[n]
+        st.session_state["content"] = contents[n]
+        st.session_state["embedding"] = embeddings[n]
+        st.session_state["ido"] = idos[n]
+        st.session_state["keido"] = keidos[n]
+        st.session_state["url"] = urls[n]
+        st.session_state['hotelid'] = hotelids[n]
+        st.session_state['price'] = prices[n]
         change_page()
 
+    urls,titles,contents,names,embeddings,idos,keidos,hotelids,prices = df_to_lists(results)
+
     for i in range(len(results)):
-        st.session_state["url"] = results['url'][i]
-        st.session_state["title"] = results['title'][i]
-        st.session_state["content"] = results['content'][i]
-        name, price, content = results['name'][i], results['price'][i], results['content'][i]
+        st.session_state["url"] = urls[i]
+        st.session_state["title"] = titles[i]
+        st.session_state["content"] = contents[i]
+        name, price, content = names[i], prices[i], contents[i]
         st.markdown(f'**{name}**  \n{price}円～  \n{content}')
         st.button(f"{name}の詳細", on_click=button_callback, args=(i,))
+
+
 
 def detail():
     st.title(st.session_state["name"])
@@ -207,22 +235,15 @@ def detail():
     
     df_rank = df_rank.reset_index(drop=True)
     df_rank['rank'] = np.zeros(len(df_rank))
-    for i in range(len(df_rank)):
-        df_rank['sim'][i] = cos_similarity(df_rank['embedding'][i], st.session_state["embedding"])
+    sims = []
+    embeddings = df_rank['embedding'].to_list()
+    for embedding in embeddings:
+        sims.append(cos_similarity(embedding, st.session_state["embedding"]))
+    df_rank['sim'] = sims
     df_rank = nearby_hotels(df_rank, st.session_state["ido"], st.session_state["keido"])
     df_rank = pd.concat([df_rank, nearby_pop(limit_price(st.session_state['df'],dprice),st.session_state['ido'],st.session_state['keido'])])
     df_rank = df_rank.drop_duplicates(subset='name')
 
-    def button_callback(n:int):
-            st.session_state["name"] = df_rank['name'][n]
-            st.session_state["title"] = df_rank['title'][n]
-            st.session_state["content"] = df_rank['content'][n]
-            st.session_state["embedding"] = df_rank['embedding'][n]
-            st.session_state["ido"] = df_rank['ido'][n]
-            st.session_state["keido"] = df_rank['keido'][n]
-            st.session_state["url"] = df_rank['url'][n]
-            st.session_state['hotelid'] = df_rank['hotelid'][n]
-            st.session_state['price'] = df_rank['price'][n]
 
     lat = st.session_state["ido"]
     long = st.session_state["keido"]
@@ -264,14 +285,30 @@ def detail():
 
     st.header("近隣のおすすめホテル")
 
+    urls,titles,contents,names,embeddings,idos,keidos,hotelids,prices = df_to_lists(df_rank)
+    def change_page():
+        st.session_state["page-select"] = "page2"
+    def button_callback(n:int):
+        st.session_state["name"] = names[n]
+        st.session_state["title"] = titles[n]
+        st.session_state["content"] = contents[n]
+        st.session_state["embedding"] = embeddings[n]
+        st.session_state["ido"] = idos[n]
+        st.session_state["keido"] = keidos[n]
+        st.session_state["url"] = urls[n]
+        st.session_state['hotelid'] = hotelids[n]
+        st.session_state['price'] = prices[n]
+        change_page()
+
     for i in range(1, len(df_rank)):
-        name,content, price = df_rank['name'][i], df_rank['content'][i], df_rank['price'][i]
+        name, content, price = names[i], contents[i], prices[i]
         st.markdown(f'**{name}**  \n{price}円～  \n{content}')
         st.button(f"{name}の詳細", on_click=button_callback, args=(i,))
         
-    
-    
-    transition_df = pd.read_pickle('./transition_data.pkl')
+    @st.cache_data
+    def load_tbd():
+        return pd.read_pickle('transition_data.pkl')
+    transition_df = load_tbd()
    
     suggestable = 0
     if len(transition_df[transition_df['hotelid']==st.session_state['hotelid']]['rank']) != 0:
@@ -287,32 +324,34 @@ def detail():
         suggest = st.session_state['df']
 
         suggest = limit_price(suggest, dprice)
-        namelist = suggest['name'].to_list()
-        contentlist = suggest['content'].to_list()
-        idlist = suggest['hotelid'].to_list()
-        pricelist = suggest['price'].to_list()
 
-        def callback2(n:int):
-            st.session_state["name"] = suggest['name'][n]
-            st.session_state["title"] = suggest['title'][n]
-            st.session_state["content"] = suggest['content'][n]
-            st.session_state["embedding"] = suggest['embedding'][n]
-            st.session_state["ido"] = suggest['ido'][n]
-            st.session_state["keido"] = suggest['keido'][n]
-            st.session_state["url"] = suggest['url'][n]
-            st.session_state['hotelid'] = suggest['hotelid'][n]
-            st.session_state['price'] = suggest['price'][n]
+        urls2,titles2,contents2,names2,embeddings2,idos2,keidos2,hotelids2,prices2 = df_to_lists(suggest)
+
+        def change_page():
+            st.session_state["page-select"] = "page2"
+
+        def button_callback2(n:int):
+            st.session_state["name"] = names2[n]
+            st.session_state["title"] = titles2[n]
+            st.session_state["content"] = contents2[n]
+            st.session_state["embedding"] = embeddings2[n]
+            st.session_state["ido"] = idos2[n]
+            st.session_state["keido"] = keidos2[n]
+            st.session_state["url"] = urls2[n]
+            st.session_state['hotelid'] = hotelids2[n]
+            st.session_state['price'] = prices2[n]
+            change_page()
 
 
         for i in range(len(transition_list)): 
             try:    
                 id = transition_list[i][0]
-                idx = idlist.index(id)
-                name = namelist[idx]
-                content = contentlist[idx]
-                price = pricelist[idx]
+                idx = hotelids2.index(id)
+                name = names2[idx]
+                content = contents2[idx]
+                price = prices2[idx]
                 st.markdown(f'**{name}**  \n{price}円～  \n{content}')
-                st.button(f'{name} 詳細', on_click=callback2, args=(idx,))
+                st.button(f'{name} 詳細', on_click=button_callback2, args=(idx,))
             except:
                 continue
 
