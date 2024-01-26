@@ -45,17 +45,23 @@ def nearby_hotels(df:pd.DataFrame, ido:float, keido:float):
     df = df[df['ido'] >= ido-ido_lim]
     df = df[df['keido'] <= keido+keido_lim]
     df = df[df['keido'] >= keido-keido_lim]
-    df['dis_score'] = np.zeros(len(df))
+
+    dis_score = []
+    idos = df['ido'].to_list()
+    keidos = df['keido'].to_list()
+    idokeido = zip(idos,keidos)
     df = df.reset_index(drop=True)
-    for i in range(len(df)):
-        distance = np.sqrt(abs(df['ido'][i] - ido)**2 + abs(df['keido'][i] - keido)**2)
-        score = (np.sqrt(keido_lim**2 + ido_lim**2) - distance)/(np.sqrt(keido_lim**2 + ido_lim**2))
+
+    for i, k in idokeido:
+        distance = np.sqrt(abs(i-ido)**2 + abs(k-keido)**2)
+        score = (np.sqrt(keido_lim**2 + ido_lim**2) - distance)/(np.sqrt(keido_lim**2+ido_lim**2))
         if score < 0:
             score = 0
-        df['dis_score'][i] = score
+        dis_score.append(score)
+
+    df['dis_score'] = dis_score
     df['total_score'] = df['sim'] + df['dis_score']*0.1
     df = df.sort_values('total_score', ascending=False)[:5]
-
     return df
 
 def nearby_pop(df:pd.DataFrame, ido:float, keido:float):
@@ -67,13 +73,6 @@ def nearby_pop(df:pd.DataFrame, ido:float, keido:float):
     df = df[df['keido'] >= keido-keido_lim]
     df = df[df['hotelid'].notnull()]
     df = df[df['hotelid'] != '']
-    df = df.reset_index(drop=True)
-    database = pd.read_csv('./KNTres20230927-20240109.csv', encoding='shift-jis')['hotelid'].to_list()
-    gacount = []
-    ids = df['hotelid'].to_list()
-    for id in ids:
-        gacount.append(database.count(id))
-    df['gacount'] = gacount
     df = df.sort_values('gacount', ascending=False).reset_index(drop=True)[:5]
     return df
 
@@ -135,6 +134,7 @@ def main():
     def load_vdb():
         return pd.read_pickle('vector_database.pkl')
     df = load_vdb()
+    df = df.sort_values('gacount')
     df = df.reset_index(drop=True)
     st.session_state['df'] = df
     if 'search_word' not in st.session_state:
@@ -143,6 +143,7 @@ def main():
     pressed = st.button("Search Hotels")
     df['sim'] = np.zeros(len(df))
 
+    #検索結果
     if pressed:
         search_vec = aws_embedding([search_word])
         sim = []
@@ -150,9 +151,10 @@ def main():
         for embedding in embeddings:
             sim.append(cos_similarity(search_vec, embedding))
         df['sim'] = sim
+        df = df.sort_values('gacount', ascending=False).head(int(len(df)*0.2))
         df = df.sort_values('sim', ascending=False)
-        st.session_state['df'] = df
-        display = df.iloc[0:10].reset_index(drop=True)
+        display = df.iloc[0:10]
+        display = display.sort_values("gacount", ascending=False)
         def change_page():
             st.session_state["page-select"] = "page2"
 
@@ -183,15 +185,25 @@ def main():
         'お住いの都道府県を選択 (実際のサイトでは利用者の位置情報を基に表示します)',
         ('北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県','海外' )
     )
+
+    df = st.session_state['df']
     @st.cache_data
-    def read_res():
-        return pd.read_csv('./KNTres20230927-20240109.csv', encoding='shift-jis')
-    hotel = read_res()
-    pref_df = pd.read_csv('./pref.csv', encoding='shift-jis')
-    pref_eng = pref_df[pref_df['name']==pref]['en'].iloc[0]
-    hotel_pref = hotel[hotel['pref']==pref_eng]
-    top_hotels = list(hotel_pref['hotelid'].value_counts()[0:10].index)
-    results = df[df['hotelid'].isin(top_hotels)].reset_index(drop=True)
+    def pref_pop(pref):
+        @st.cache_data
+        def read_res():
+            return pd.read_csv('./KNTres20230927-20240109.csv', encoding='shift-jis')
+        hotel = read_res()
+        @st.cache_data
+        def read_pref():
+            return pd.read_csv('./pref.csv', encoding='shift-jis')
+        pref_df = read_pref()
+        pref_eng = pref_df[pref_df['name']==pref]['en'].iloc[0]
+        hotel_pref = hotel[hotel['pref']==pref_eng]
+        top_hotels = list(hotel_pref['hotelid'].value_counts()[0:10].index)
+        results = df[df['hotelid'].isin(top_hotels)].reset_index(drop=True)
+        return results
+    
+    results = pref_pop(pref)
 
     def change_page():
         st.session_state["page-select"] = "page2"
@@ -221,18 +233,20 @@ def main():
 
 
 def detail():
+    #当該ホテル詳細
     st.title(st.session_state["name"])
     dprice = st.session_state['price']
     st.write(f"{dprice}円～")
     if st.session_state['hotelid'] != '':
         st.write("近畿日本ツーリストで予約 (%s)" % f"https://yado.knt.co.jp/planlist/{st.session_state['hotelid']}/")
 
-
     st.write(st.session_state["content"])
-    df_rank = st.session_state['df']
 
+
+    #おすすめホテル抽出
+    df_rank = st.session_state['df']
     df_rank = limit_price(df_rank, dprice)
-    
+
     df_rank = df_rank.reset_index(drop=True)
     df_rank['rank'] = np.zeros(len(df_rank))
     sims = []
@@ -245,6 +259,7 @@ def detail():
     df_rank = df_rank.drop_duplicates(subset='name')
 
 
+    #地図描画
     lat = st.session_state["ido"]
     long = st.session_state["keido"]
     df_rank = df_rank.reset_index(drop=True)
@@ -283,6 +298,7 @@ def detail():
     #st.dataframe(pop2.reset_index(drop=True)[:5])
     
 
+    #おすすめホテル表示
     st.header("近隣のおすすめホテル")
 
     urls,titles,contents,names,embeddings,idos,keidos,hotelids,prices = df_to_lists(df_rank)
