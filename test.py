@@ -130,7 +130,8 @@ def df_to_lists(display:pd.DataFrame):
     return urls,titles,contents,names,embeddings,idos,keidos,hotelids,prices
 
 def personalize(gaid:str,df:pd.DataFrame,history:pd.DataFrame):
-    history_p = history[history['GA']==gaid]['hotelid'].to_list()
+    history_df =history[history['GA']==gaid]
+    history_p = history_df['hotelid'].to_list()
     ids = df['hotelid'].to_list()
     embeddings = df['embedding'].to_list()
     personal_v= np.zeros(1024).tolist()
@@ -141,7 +142,7 @@ def personalize(gaid:str,df:pd.DataFrame,history:pd.DataFrame):
             pref.append(id[1:3])
     pref_most = statistics.mode(pref)
 
-    return personal_v, pref_most
+    return personal_v, pref_most, history_df
 
 def add_vector():
     st.session_state['personal_v'] = [x+y for x,y in zip(st.session_state['personal_v'],st.session_state['embedding'])]
@@ -162,12 +163,13 @@ def main():
         history = read_res()
         gaid = history['GA'].unique()[np.random.randint(history['GA'].nunique())]
         st.session_state['gaid'] = gaid
-        st.session_state['personal_v'], st.session_state['personal_pref'] = personalize(gaid,df,history)
+        st.session_state['personal_v'], st.session_state['personal_pref'], st.session_state['personal_history'] = personalize(gaid,df,history)
     else:
         gaid = st.session_state['gaid']
 
     st.caption(f"ようこそ、{gaid} さん")
     st.title("ホテル検索ツール")
+    st.dataframe(st.session_state.personal_history)
 
     df = df.sort_values('gacount')
     df = df.reset_index(drop=True)
@@ -328,6 +330,11 @@ def main():
         st.markdown(f'**{name}**  \n{price}円～  \n{content}')
         st.button(f"{name} の詳細", on_click=button_callbackp, args=(i,))
 
+    def move_to_history():
+        st.session_state["page-select"] = "page3"
+
+    st.button("予約履歴へ", on_click=move_to_history)
+
     
 
 
@@ -477,14 +484,23 @@ def detail():
         st.session_state["page-select"] = "page1"
     st.button("ホームに戻る", on_click=return_home)
 
+def reserve_history():
+    st.write(f"{st.session_state.gaid}の予約履歴（2023/9/27～2024/1/9)")
+    st.write("検索ページの「あなたへのおすすめ」はこのデータを基にして表示")
+    st.dataframe(st.session_state.personal_history)
+    
+
+
+
 pages = dict(
     page1="検索",
     page2="詳細",
+    page3="予約履歴"
 )
 
 page_id = st.sidebar.selectbox(
     "ページ名",
-    ["page1", "page2"],
+    ["page1", "page2", "page3"],
     format_func=lambda page_id: pages[page_id],
     key = "page-select",
 )
@@ -494,3 +510,6 @@ if page_id == "page1":
 
 if page_id == "page2":
     detail()
+
+if page_id == "page3":
+    reserve_history()
