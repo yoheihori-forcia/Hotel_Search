@@ -8,7 +8,7 @@ import boto3
 from streamlit_folium import st_folium      # streamlitでfoliumを使う
 import folium
 import math     
-import statistics
+import collections
 
 def initialze_page():
     st.set_page_config(
@@ -140,7 +140,7 @@ def personalize(gaid:str,df:pd.DataFrame,history:pd.DataFrame):
         if id in ids:
             personal_v = [x+y for x,y in zip(personal_v,embeddings[ids.index(id)])]
             pref.append(id[1:3])
-    pref_most = statistics.mode(pref)
+    pref_most = collections.Counter(pref).most_common()
 
     return personal_v, pref_most, history_df
 
@@ -169,7 +169,7 @@ def main():
 
     st.caption(f"ようこそ、{gaid} さん")
     st.title("ホテル検索ツール")
-    st.dataframe(st.session_state.personal_history)
+
 
     df = df.sort_values('gacount')
     df = df.reset_index(drop=True)
