@@ -8,6 +8,7 @@ import boto3
 from streamlit_folium import st_folium      # streamlitでfoliumを使う
 import folium
 import math     
+import statistics
 
 def initialze_page():
     st.set_page_config(
@@ -15,7 +16,7 @@ def initialze_page():
         page_icon = "🏨"
     )
 
-def aws_embedding(texts): #list
+def aws_embedding(texts:list): #list
     bedrock = boto3.client('bedrock-runtime',  region_name='us-west-2')
     
     params = {
@@ -128,12 +129,46 @@ def df_to_lists(display:pd.DataFrame):
 
     return urls,titles,contents,names,embeddings,idos,keidos,hotelids,prices
 
+def personalize(gaid:str,df:pd.DataFrame,history:pd.DataFrame):
+    history_p = history[history['GA']==gaid]['hotelid'].to_list()
+    ids = df['hotelid'].to_list()
+    embeddings = df['embedding'].to_list()
+    personal_v= np.zeros(1024).tolist()
+    pref = []
+    for id in history_p:
+        if id in ids:
+            personal_v = [x+y for x,y in zip(personal_v,embeddings[ids.index(id)])]
+            pref.append(id[1:3])
+    pref_most = statistics.mode(pref)
+
+    return personal_v, pref_most
+
+def add_vector():
+    st.session_state['personal_v'] = [x+y for x,y in zip(st.session_state['personal_v'],st.session_state['embedding'])]
+
+
+
 def main():
-    st.title("ホテル検索ツール")
+     #パーソナル情報初期設定
     @st.cache_data
     def load_vdb():
         return pd.read_pickle('vector_database.pkl')
     df = load_vdb()
+
+    if 'personal_v' not in st.session_state:
+        @st.cache_data
+        def read_res():
+            return pd.read_csv('./KNTres20230927-20240109.csv', encoding='shift-jis')
+        history = read_res()
+        gaid = history['GA'].unique()[np.random.randint(history['GA'].nunique())]
+        st.session_state['gaid'] = gaid
+        st.session_state['personal_v'], st.session_state['personal_pref'] = personalize(gaid,df,history)
+    else:
+        gaid = st.session_state['gaid']
+
+    st.caption(f"ようこそ、{gaid} さん")
+    st.title("ホテル検索ツール")
+
     df = df.sort_values('gacount')
     df = df.reset_index(drop=True)
     st.session_state['df'] = df
@@ -154,9 +189,10 @@ def main():
         df = df.sort_values('gacount', ascending=False).head(int(len(df)*0.2))
         df = df.sort_values('sim', ascending=False)
         display = df.iloc[0:10]
-        display = display.sort_values("gacount", ascending=False)
+        display = display.sort_values("blueplanet", ascending=False).sort_values("gacount", ascending=False)
         def change_page():
             st.session_state["page-select"] = "page2"
+            add_vector()
 
         def button_callback(n:int):
             st.session_state["name"] = names[n]
@@ -169,6 +205,7 @@ def main():
             st.session_state['hotelid'] = hotelids[n]
             st.session_state['price'] = prices[n]
             change_page()
+            
 
         urls,titles,contents,names,embeddings,idos,keidos,hotelids,prices = df_to_lists(display)
 
@@ -180,10 +217,10 @@ def main():
             st.markdown(f'**{name}**  \n{price}円～  \n{content}')
             st.button(f"{name}の詳細", on_click=button_callback, args=(i,))
     
-    st.header("おすすめホテル")
+    st.header("位置情報おすすめホテル")
     pref = st.selectbox(
         'お住いの都道府県を選択 (実際のサイトでは利用者の位置情報を基に表示します)',
-        ('北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県','海外' )
+        ('北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県',)
     )
 
     df = st.session_state['df']
@@ -200,35 +237,98 @@ def main():
         pref_eng = pref_df[pref_df['name']==pref]['en'].iloc[0]
         hotel_pref = hotel[hotel['pref']==pref_eng]
         top_hotels = list(hotel_pref['hotelid'].value_counts()[0:10].index)
-        results = df[df['hotelid'].isin(top_hotels)].reset_index(drop=True)
+        results = df[df['hotelid'].isin(top_hotels)].sort_values(["blueplanet","gacount"], ascending=False).reset_index(drop=True)
+        ids = results['hotelid'].to_list()
+        ppref = []
+        for id in ids:
+            if id[1:3] == st.session_state.personal_pref:
+                ppref.append(1)
+            else:
+                ppref.append(0)
+
+        results['ppref'] = ppref
+        results = results.sort_values('ppref', ascending=False).reset_index(drop=True)
         return results
     
     results = pref_pop(pref)
 
     def change_page():
         st.session_state["page-select"] = "page2"
+        add_vector()
 
-    def button_callback(n:int):
-        st.session_state["name"] = names[n]
-        st.session_state["title"] = titles[n]
-        st.session_state["content"] = contents[n]
-        st.session_state["embedding"] = embeddings[n]
-        st.session_state["ido"] = idos[n]
-        st.session_state["keido"] = keidos[n]
-        st.session_state["url"] = urls[n]
-        st.session_state['hotelid'] = hotelids[n]
-        st.session_state['price'] = prices[n]
+    def button_callback2(n:int):
+        st.session_state["name"] = names2[n]
+        st.session_state["title"] = titles2[n]
+        st.session_state["content"] = contents2[n]
+        st.session_state["embedding"] = embeddings2[n]
+        st.session_state["ido"] = idos2[n]
+        st.session_state["keido"] = keidos2[n]
+        st.session_state["url"] = urls2[n]
+        st.session_state['hotelid'] = hotelids2[n]
+        st.session_state['price'] = prices2[n]
         change_page()
 
-    urls,titles,contents,names,embeddings,idos,keidos,hotelids,prices = df_to_lists(results)
+    urls2,titles2,contents2,names2,embeddings2,idos2,keidos2,hotelids2,prices2 = df_to_lists(results)
 
     for i in range(len(results)):
-        st.session_state["url"] = urls[i]
-        st.session_state["title"] = titles[i]
-        st.session_state["content"] = contents[i]
-        name, price, content = names[i], prices[i], contents[i]
+        st.session_state["url"] = urls2[i]
+        st.session_state["title"] = titles2[i]
+        st.session_state["content"] = contents2[i]
+        name, price, content = names2[i], prices2[i], contents2[i]
         st.markdown(f'**{name}**  \n{price}円～  \n{content}')
-        st.button(f"{name}の詳細", on_click=button_callback, args=(i,))
+        st.button(f"{name}の詳細", on_click=button_callback2, args=(i,))
+
+
+    st.header("あなたへのおすすめホテル")
+    sim = []
+    embeddings = st.session_state.df['embedding'].to_list()
+    for embedding in embeddings:
+        sim.append(cos_similarity(st.session_state['personal_v'], embedding))
+    personal = st.session_state.df
+    personal['sim'] = sim
+    personal = personal.sort_values('gacount', ascending=False).head(int(len(df)*0.2))
+    personal = personal.sort_values('sim', ascending=False)
+    personal = personal.iloc[0:10].reset_index(drop=True)
+    hotelidsp = personal['hotelid'].to_list()
+    ppref = []
+    for id in hotelidsp:
+        if id[1:3] == st.session_state.personal_pref:
+            ppref.append(1)
+        else:
+            ppref.append(0)
+    personal['ppref'] = ppref
+    personal = personal.sort_values('ppref', ascending=False).reset_index(drop=True)
+    #personal = personal.sort_values("blueplanet", ascending=False).sort_values("gacount", ascending=False)
+
+
+    def change_page():
+        st.session_state["page-select"] = "page2"
+        add_vector()
+
+    def button_callbackp(n:int):
+        st.session_state["name"] = namesp[n]
+        st.session_state["title"] = titlesp[n]
+        st.session_state["content"] = contentsp[n]
+        st.session_state["embedding"] = embeddingsp[n]
+        st.session_state["ido"] = idosp[n]
+        st.session_state["keido"] = keidosp[n]
+        st.session_state["url"] = urlsp[n]
+        st.session_state['hotelid'] = hotelidsp[n]
+        st.session_state['price'] = pricesp[n]
+        change_page()
+            
+
+    urlsp,titlesp,contentsp,namesp,embeddingsp,idosp,keidosp,hotelidsp,pricesp = df_to_lists(personal)
+
+    for i in range(len(personal)):
+        st.session_state["url"] = urlsp[i]
+        st.session_state["title"] = titlesp[i]
+        st.session_state["content"] = contentsp[i]
+        name, price, content = namesp[i], pricesp[i], contentsp[i]
+        st.markdown(f'**{name}**  \n{price}円～  \n{content}')
+        st.button(f"{name} の詳細", on_click=button_callbackp, args=(i,))
+
+    
 
 
 
@@ -256,13 +356,12 @@ def detail():
     df_rank['sim'] = sims
     df_rank = nearby_hotels(df_rank, st.session_state["ido"], st.session_state["keido"])
     df_rank = pd.concat([df_rank, nearby_pop(limit_price(st.session_state['df'],dprice),st.session_state['ido'],st.session_state['keido'])])
-    df_rank = df_rank.drop_duplicates(subset='name')
+    df_rank = df_rank.drop_duplicates(subset='name')[1:].sort_values("blueplanet", ascending=False).reset_index(drop=True)
 
 
     #地図描画
     lat = st.session_state["ido"]
     long = st.session_state["keido"]
-    df_rank = df_rank.reset_index(drop=True)
 
     # 地図の中心の緯度/経度、タイル、初期のズームサイズを指定します。
     m = folium.Map(
@@ -304,6 +403,8 @@ def detail():
     urls,titles,contents,names,embeddings,idos,keidos,hotelids,prices = df_to_lists(df_rank)
     def change_page():
         st.session_state["page-select"] = "page2"
+        add_vector()
+
     def button_callback(n:int):
         st.session_state["name"] = names[n]
         st.session_state["title"] = titles[n]
@@ -316,7 +417,7 @@ def detail():
         st.session_state['price'] = prices[n]
         change_page()
 
-    for i in range(1, len(df_rank)):
+    for i in range(len(df_rank)):
         name, content, price = names[i], contents[i], prices[i]
         st.markdown(f'**{name}**  \n{price}円～  \n{content}')
         st.button(f"{name}の詳細", on_click=button_callback, args=(i,))
@@ -345,6 +446,7 @@ def detail():
 
         def change_page():
             st.session_state["page-select"] = "page2"
+            add_vector()
 
         def button_callback2(n:int):
             st.session_state["name"] = names2[n]
@@ -367,7 +469,7 @@ def detail():
                 content = contents2[idx]
                 price = prices2[idx]
                 st.markdown(f'**{name}**  \n{price}円～  \n{content}')
-                st.button(f'{name} 詳細', on_click=button_callback2, args=(idx,))
+                st.button(f'{name}  詳細', on_click=button_callback2, args=(idx,))
             except:
                 continue
 
