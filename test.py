@@ -337,7 +337,7 @@ def main():
             st.session_state["content"] = contents[i]
             name, price, content = names[i], prices[i], contents[i]
             st.markdown(f'**{name}**  \n{price}円～  \n{content}')
-            st.button(f"{name}の詳細", on_click=button_callback, args=(i,))
+            st.button(f"{name}　の詳細", on_click=button_callback, args=(i,))
 
     
 
