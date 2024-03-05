@@ -10,19 +10,8 @@ import folium
 import math     
 import collections
 import os
-from llama_index import GPTVectorStoreIndex, ServiceContext
-from llama_index.llms import OpenAI
-from llama_index.callbacks import CallbackManager, LlamaDebugHandler
 import logging
 import sys
-from llama_index.callbacks import CallbackManager, LlamaDebugHandler
-from llama_index import load_index_from_storage
-from llama_index import ServiceContext
-from llama_index.storage.docstore import SimpleDocumentStore
-from llama_index.storage.index_store import SimpleIndexStore
-from llama_index.vector_stores import SimpleVectorStore
-from llama_index import StorageContext
-from llama_index.prompts.prompts import QuestionAnswerPrompt
 import codecs
 
 
@@ -368,57 +357,6 @@ def detail():
 
     st.write(st.session_state["content"])
 
-    #AIチャットボット
-    if st.session_state.hotelid != '':
-        st.write("遊びで作ってみましたが、現状ではまだまだ精度が低いです。悪しからずご了承ください。")
-        query = st.text_input("このホテルに関する質問はありますか？")
-
-
-        if query != '':
-            logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, force=True)
-
-            os.environ["OPENAI_API_KEY"] = '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'
-
-            # Open AIのGPT4をLLMとして指定しServiceContextに設定する
-            llm = OpenAI(model='gpt-4-0613', temperature=0.5, max_tokens=1024)
-
-            # QAテンプレートの準備
-            qa_template = QuestionAnswerPrompt("""<s>[INST] <<SYS>>
-            あなたは宿泊施設ヘルプセンターのオペレターです。質問に対して親切に日本語で答えください。もし回答が分からなければ、その旨を伝え謝ったうえで文章をを変えてもう一度質問するよう依頼するか、宿泊施設の電話番号を提示して直接問い合わせるよう促してください。
-            <</SYS>>
-            == 以下にコンテキスト情報を提供します。
-            {context_str}
-            == 質問
-            {query_str}
-
-            [/INST]
-            """)
-
-            llama_debug_handler = LlamaDebugHandler()
-            callback_manager = CallbackManager([llama_debug_handler])
-            service_context = ServiceContext.from_defaults(callback_manager=callback_manager)
-
-            indexfolder = './data/' + st.session_state.hotelid + 'index'
-            storage_context = StorageContext.from_defaults(
-                docstore=SimpleDocumentStore.from_persist_dir(persist_dir=indexfolder),
-                vector_store=SimpleVectorStore.from_persist_dir(persist_dir=indexfolder),
-                index_store=SimpleIndexStore.from_persist_dir(persist_dir=indexfolder),
-            )
-
-            # don't need to specify index_id if there's only one index in storage context
-            index = load_index_from_storage(storage_context, service_context=service_context)
-
-            # LLMへの問い合わせ
-            # この時indexを参照し、問い合わせに近い情報（チャンク）を取得し、それをプロンプトに組み込む
-            # 幾つのチャンクを組み込むのかを `similarity_top_k` で指定する
-            query_engine = index.as_query_engine(
-                similarity_top_k=3,
-                text_qa_template=qa_template,
-            )
-
-            response = query_engine.query(query)
-
-            st.markdown(response)
 
 
     #おすすめホテル抽出
